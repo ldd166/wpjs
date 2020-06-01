@@ -1,0 +1,7 @@
+{
+	"extends": "stylelint-config-wordpress",
+	"ignoreFiles": [
+		"node_modules/**",
+		"wpcs/**"
+	]
+}

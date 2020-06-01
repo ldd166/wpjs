@@ -1,0 +1,35 @@
+.text-center {
+	text-align: center;
+}
+
+.buttons-wrapper {
+	margin: 20px 0;
+}
+
+.buttons-wrapper button > .dashicons-update {
+	margin-top: 3px;
+}
+
+#jsdelivrcdn-settings-table tbody {
+	background: #f1f1f1;
+}
+
+#jsdelivrcdn-settings-table tr:nth-child(2n) {
+	background: #fff;
+}
+
+.dashicons.spin {
+	animation: dashicons-spin 1s infinite;
+	animation-timing-function: linear;
+}
+
+@keyframes dashicons-spin {
+
+	0% {
+		transform: rotate(0deg);
+	}
+
+	100% {
+		transform: rotate(360deg);
+	}
+}

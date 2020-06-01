@@ -1,0 +1,63 @@
+.amcharts-working {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background: transparent url(../images/working.gif) no-repeat;
+}
+
+.amcharts-error {
+  color: #c00;
+}
+
+.amcharts-resource-list {
+  max-height: 300px;
+  border: 1px solid #eee;
+  background: #fff;
+  padding: 10px;
+  font-size: 10px;
+  overflow: auto;
+}
+
+.amcharts-resource-list p {
+  font-size: 10px;
+}
+
+#amcharts-path, #amcharts-custom-resources, .amcharts-resources {
+  height: 100px;
+}
+
+.amcharts-tab h4 {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.amcharts-notice {
+  color: #cc0000;
+  font-style: italic;
+}
+
+.amcharts-resource-list .amcharts-notice {
+  font-size: 10px;
+}
+
+#amcharts-chart-type-default, #amcharts-apply-default {
+  vertical-align: top;
+  margin: 0;
+}
+
+#amcharts_misc_box .inside {
+  margin: 0;
+  padding: 0;
+}
+#amcharts_misc_box label {
+  display: inline-block;
+  margin-bottom: 4px;
+}
+
+.amcharts-edit-section {
+  border-top: 1px solid #ddd;
+}
+
+.amcharts-center {
+  text-align: center;
+}
