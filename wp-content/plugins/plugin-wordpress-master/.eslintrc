@@ -1,6 +1,0 @@
-{
-	"extends": "wordpress",
-	"plugins": [
-		"html"
-	]
-}
