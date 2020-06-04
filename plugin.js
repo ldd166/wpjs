@@ -1,92 +1,225 @@
-/* global tinymce */
 /**
- * Included for back-compat.
- * The default WindowManager in TinyMCE 4.0 supports three types of dialogs:
- *	- With HTML created from JS.
- *	- With inline HTML (like WPWindowManager).
- *	- Old type iframe based dialogs.
- * For examples see the default plugins: https://github.com/tinymce/tinymce/tree/master/js/tinymce/plugins
+ * WordPress View plugin.
  */
-tinymce.WPWindowManager = tinymce.InlineWindowManager = function( editor ) {
-	if ( this.wp ) {
-		return this;
-	}
+( function( tinymce ) {
+	tinymce.PluginManager.add( 'wpview', function( editor ) {
+		function noop () {}
 
-	this.wp = {};
-	this.parent = editor.windowManager;
-	this.editor = editor;
+		// Set this here as wp-tinymce.js may be loaded too early.
+		var wp = window.wp;
 
-	tinymce.extend( this, this.parent );
-
-	this.open = function( args, params ) {
-		var $element,
-			self = this,
-			wp = this.wp;
-
-		if ( ! args.wpDialog ) {
-			return this.parent.open.apply( this, arguments );
-		} else if ( ! args.id ) {
-			return;
+		if ( ! wp || ! wp.mce || ! wp.mce.views ) {
+			return {
+				getView: noop
+			};
 		}
 
-		if ( typeof jQuery === 'undefined' || ! jQuery.wp || ! jQuery.wp.wpdialog ) {
-			// wpdialog.js is not loaded.
-			if ( window.console && window.console.error ) {
-				window.console.error('wpdialog.js is not loaded. Please set "wpdialogs" as dependency for your script when calling wp_enqueue_script(). You may also want to enqueue the "wp-jquery-ui-dialog" stylesheet.');
+		// Check if a node is a view or not.
+		function isView( node ) {
+			return editor.dom.hasClass( node, 'wpview' );
+		}
+
+		// Replace view tags with their text.
+		function resetViews( content ) {
+			function callback( match, $1 ) {
+				return '<p>' + window.decodeURIComponent( $1 ) + '</p>';
 			}
 
-			return;
-		}
-
-		wp.$element = $element = jQuery( '#' + args.id );
-
-		if ( ! $element.length ) {
-			return;
-		}
-
-		if ( window.console && window.console.log ) {
-			window.console.log('tinymce.WPWindowManager is deprecated. Use the default editor.windowManager to open dialogs with inline HTML.');
-		}
-
-		wp.features = args;
-		wp.params = params;
-
-		// Store selection. Takes a snapshot in the FocusManager of the selection before focus is moved to the dialog.
-		editor.nodeChanged();
-
-		// Create the dialog if necessary.
-		if ( ! $element.data('wpdialog') ) {
-			$element.wpdialog({
-				title: args.title,
-				width: args.width,
-				height: args.height,
-				modal: true,
-				dialogClass: 'wp-dialog',
-				zIndex: 300000
-			});
-		}
-
-		$element.wpdialog('open');
-
-		$element.on( 'wpdialogclose', function() {
-			if ( self.wp.$element ) {
-				self.wp = {};
+			if ( ! content || content.indexOf( ' data-wpview-' ) === -1 ) {
+				return content;
 			}
+
+			return content
+				.replace( /<div[^>]+data-wpview-text="([^"]+)"[^>]*>(?:\.|[\s\S]+?wpview-end[^>]+>\s*<\/span>\s*)?<\/div>/g, callback )
+				.replace( /<p[^>]+data-wpview-marker="([^"]+)"[^>]*>[\s\S]*?<\/p>/g, callback );
+		}
+
+		editor.on( 'init', function() {
+			var MutationObserver = window.MutationObserver || window.WebKitMutationObserver;
+
+			if ( MutationObserver ) {
+				new MutationObserver( function() {
+					editor.fire( 'wp-body-class-change' );
+				} )
+				.observe( editor.getBody(), {
+					attributes: true,
+					attributeFilter: ['class']
+				} );
+			}
+
+			// Pass on body class name changes from the editor to the wpView iframes.
+			editor.on( 'wp-body-class-change', function() {
+				var className = editor.getBody().className;
+
+				editor.$( 'iframe[class="wpview-sandbox"]' ).each( function( i, iframe ) {
+					// Make sure it is a local iframe.
+					// jshint scripturl: true
+					if ( ! iframe.src || iframe.src === 'javascript:""' ) {
+						try {
+							iframe.contentWindow.document.body.className = className;
+						} catch( er ) {}
+					}
+				});
+			} );
 		});
-	};
 
-	this.close = function() {
-		if ( ! this.wp.features || ! this.wp.features.wpDialog ) {
-			return this.parent.close.apply( this, arguments );
-		}
+		// Scan new content for matching view patterns and replace them with markers.
+		editor.on( 'beforesetcontent', function( event ) {
+			var node;
 
-		this.wp.$element.wpdialog('close');
-	};
-};
+			if ( ! event.selection ) {
+				wp.mce.views.unbind();
+			}
 
-tinymce.PluginManager.add( 'wpdialogs', function( editor ) {
-	// Replace window manager.
-	editor.on( 'init', function() {
-		editor.windowManager = new tinymce.WPWindowManager( editor );
-	});
-});
+			if ( ! event.content ) {
+				return;
+			}
+
+			if ( ! event.load ) {
+				node = editor.selection.getNode();
+
+				if ( node && node !== editor.getBody() && /^\s*https?:\/\/\S+\s*$/i.test( event.content ) ) {
+					// When a url is pasted or inserted, only try to embed it when it is in an empty paragraph.
+					node = editor.dom.getParent( node, 'p' );
+
+					if ( node && /^[\s\uFEFF\u00A0]*$/.test( editor.$( node ).text() || '' ) ) {
+						// Make sure there are no empty inline elements in the <p>.
+						node.innerHTML = '';
+					} else {
+						return;
+					}
+				}
+			}
+
+			event.content = wp.mce.views.setMarkers( event.content, editor );
+		} );
+
+		// Replace any new markers nodes with views.
+		editor.on( 'setcontent', function() {
+			wp.mce.views.render();
+		} );
+
+		// Empty view nodes for easier processing.
+		editor.on( 'preprocess hide', function( event ) {
+			editor.$( 'div[data-wpview-text], p[data-wpview-marker]', event.node ).each( function( i, node ) {
+				node.innerHTML = '.';
+			} );
+		}, true );
+
+		// Replace views with their text.
+		editor.on( 'postprocess', function( event ) {
+			event.content = resetViews( event.content );
+		} );
+
+		// Prevent adding of undo levels when replacing wpview markers
+		// or when there are changes only in the (non-editable) previews.
+		editor.on( 'beforeaddundo', function( event ) {
+			var lastContent;
+			var newContent = event.level.content || ( event.level.fragments && event.level.fragments.join( '' ) );
+
+			if ( ! event.lastLevel ) {
+				lastContent = editor.startContent;
+			} else {
+				lastContent = event.lastLevel.content || ( event.lastLevel.fragments && event.lastLevel.fragments.join( '' ) );
+			}
+
+			if (
+				! newContent ||
+				! lastContent ||
+				newContent.indexOf( ' data-wpview-' ) === -1 ||
+				lastContent.indexOf( ' data-wpview-' ) === -1
+			) {
+				return;
+			}
+
+			if ( resetViews( lastContent ) === resetViews( newContent ) ) {
+				event.preventDefault();
+			}
+		} );
+
+		// Make sure views are copied as their text.
+		editor.on( 'drop objectselected', function( event ) {
+			if ( isView( event.targetClone ) ) {
+				event.targetClone = editor.getDoc().createTextNode(
+					window.decodeURIComponent( editor.dom.getAttrib( event.targetClone, 'data-wpview-text' ) )
+				);
+			}
+		} );
+
+		// Clean up URLs for easier processing.
+		editor.on( 'pastepreprocess', function( event ) {
+			var content = event.content;
+
+			if ( content ) {
+				content = tinymce.trim( content.replace( /<[^>]+>/g, '' ) );
+
+				if ( /^https?:\/\/\S+$/i.test( content ) ) {
+					event.content = content;
+				}
+			}
+		} );
+
+		// Show the view type in the element path.
+		editor.on( 'resolvename', function( event ) {
+			if ( isView( event.target ) ) {
+				event.name = editor.dom.getAttrib( event.target, 'data-wpview-type' ) || 'object';
+			}
+		} );
+
+		// See `media` plugin.
+		editor.on( 'click keyup', function() {
+			var node = editor.selection.getNode();
+
+			if ( isView( node ) ) {
+				if ( editor.dom.getAttrib( node, 'data-mce-selected' ) ) {
+					node.setAttribute( 'data-mce-selected', '2' );
+				}
+			}
+		} );
+
+		editor.addButton( 'wp_view_edit', {
+			tooltip: 'Edit|button', // '|button' is not displayed, only used for context.
+			icon: 'dashicon dashicons-edit',
+			onclick: function() {
+				var node = editor.selection.getNode();
+
+				if ( isView( node ) ) {
+					wp.mce.views.edit( editor, node );
+				}
+			}
+		} );
+
+		editor.addButton( 'wp_view_remove', {
+			tooltip: 'Remove',
+			icon: 'dashicon dashicons-no',
+			onclick: function() {
+				editor.fire( 'cut' );
+			}
+		} );
+
+		editor.once( 'preinit', function() {
+			var toolbar;
+
+			if ( editor.wp && editor.wp._createToolbar ) {
+				toolbar = editor.wp._createToolbar( [
+					'wp_view_edit',
+					'wp_view_remove'
+				] );
+
+				editor.on( 'wptoolbar', function( event ) {
+					if ( ! event.collapsed && isView( event.element ) ) {
+						event.toolbar = toolbar;
+					}
+				} );
+			}
+		} );
+
+		editor.wp = editor.wp || {};
+		editor.wp.getView = noop;
+		editor.wp.setViewCursor = noop;
+
+		return {
+			getView: noop
+		};
+	} );
+} )( window.tinymce );
